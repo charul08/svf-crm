@@ -1,0 +1,765 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// ENUMS
+// ============================================================
+
+enum UserRole {
+  SUPER_ADMIN
+  ORG_ADMIN
+  SALES_MANAGER
+  SALES_REP
+  READ_ONLY
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  EXPIRED
+  CANCELLED
+}
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  QUALIFIED
+  UNQUALIFIED
+  CONVERTED
+}
+
+enum LeadSource {
+  WEBSITE
+  SOCIAL_MEDIA
+  REFERRAL
+  ADVERTISEMENT
+  COLD_CALL
+  EMAIL_CAMPAIGN
+  OTHER
+}
+
+enum LeadRating {
+  HOT
+  WARM
+  COLD
+}
+
+enum DealStage {
+  PROSPECTING
+  QUALIFICATION
+  NEEDS_ANALYSIS
+  VALUE_PROPOSITION
+  DECISION_MAKERS
+  PROPOSAL
+  NEGOTIATION
+  CLOSED_WON
+  CLOSED_LOST
+}
+
+enum ActivityType {
+  CALL
+  MEETING
+  EMAIL
+  FOLLOW_UP
+  DEMO
+  PRESENTATION
+  NOTE
+  OTHER
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum TaskStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum QuoteStatus {
+  DRAFT
+  SENT
+  ACCEPTED
+  REJECTED
+  EXPIRED
+}
+
+enum OrderStatus {
+  PENDING
+  PROCESSING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  PARTIAL
+  REFUNDED
+}
+
+enum CampaignType {
+  EMAIL
+  SOCIAL_MEDIA
+  ADVERTISEMENT
+  PAID_ADS
+  EVENT
+  WEBINAR
+  COLD_OUTREACH
+  REFERRAL
+  OTHER
+}
+
+enum CampaignStatus {
+  PLANNING
+  ACTIVE
+  PAUSED
+  COMPLETED
+  CANCELLED
+}
+
+enum NotificationType {
+  LEAD_ASSIGNED
+  TASK_DUE
+  TASK_OVERDUE
+  DEAL_STAGE_CHANGED
+  DEAL_CLOSING_SOON
+  MENTION
+  SYSTEM
+}
+
+// ============================================================
+// MODELS
+// ============================================================
+
+model User {
+  id            String   @id @default(uuid())
+  email         String   @unique
+  passwordHash  String
+  fullName      String
+  phone         String?
+  avatarUrl     String?
+  isActive      Boolean  @default(true)
+  emailVerified Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  memberships        OrganizationMembership[]
+  sessions           Session[]
+  passwordResetTokens PasswordResetToken[]
+  sentInvitations    Invitation[]             @relation("InvitedBy")
+  notifications      Notification[]
+  auditLogs          AuditLog[]
+
+  @@index([email])
+}
+
+model Organization {
+  id           String   @id @default(uuid())
+  name         String
+  slug         String   @unique
+  logoUrl      String?
+  website      String?
+  phone        String?
+  email        String?
+  timezone     String   @default("Asia/Kolkata")
+  currency     String   @default("INR")
+  dateFormat   String   @default("DD/MM/YYYY")
+  fiscalYearStart Int   @default(4) // April
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  memberships  OrganizationMembership[]
+  invitations  Invitation[]
+  leads        Lead[]
+  contacts     Contact[]
+  accounts     Account[]
+  deals        Deal[]
+  activities   Activity[]
+  tasks        Task[]
+  products     Product[]
+  quotes       Quote[]
+  salesOrders  SalesOrder[]
+  campaigns    Campaign[]
+  notifications Notification[]
+  auditLogs    AuditLog[]
+  contactForms ContactFormSubmission[]
+
+  @@index([slug])
+}
+
+model OrganizationMembership {
+  id             String       @id @default(uuid())
+  userId         String
+  organizationId String
+  role           UserRole     @default(SALES_REP)
+  isActive       Boolean      @default(true)
+  joinedAt       DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  ownedLeads    Lead[]    @relation("LeadOwner")
+  ownedContacts Contact[] @relation("ContactOwner")
+  ownedAccounts Account[] @relation("AccountOwner")
+  ownedDeals    Deal[]    @relation("DealOwner")
+  assignedTasks Task[]    @relation("TaskAssignee")
+
+  @@unique([userId, organizationId])
+  @@index([userId])
+  @@index([organizationId])
+}
+
+model Session {
+  id           String   @id @default(uuid())
+  userId       String
+  refreshToken String   @unique
+  userAgent    String?
+  ipAddress    String?
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([refreshToken])
+}
+
+model PasswordResetToken {
+  id        String   @id @default(uuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+}
+
+model Invitation {
+  id             String           @id @default(uuid())
+  email          String
+  organizationId String
+  role           UserRole         @default(SALES_REP)
+  token          String           @unique
+  status         InvitationStatus @default(PENDING)
+  invitedById    String
+  expiresAt      DateTime
+  acceptedAt     DateTime?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  invitedBy    User         @relation("InvitedBy", fields: [invitedById], references: [id])
+
+  @@index([email])
+  @@index([token])
+}
+
+model Lead {
+  id               String      @id @default(uuid())
+  organizationId   String
+  ownerId          String?
+  firstName        String
+  lastName         String
+  company          String?
+  email            String?
+  phone            String?
+  mobile           String?
+  jobTitle         String?
+  website          String?
+  source           LeadSource  @default(OTHER)
+  status           LeadStatus  @default(NEW)
+  rating           LeadRating?
+  industry         String?
+  annualRevenue    Decimal?    @db.Decimal(15, 2)
+  numberOfEmployees Int?
+  nextFollowUpDate DateTime?
+  convertedAt      DateTime?
+  convertedContactId String?
+  convertedAccountId String?
+  convertedDealId  String?
+  isDeleted        Boolean     @default(false)
+  deletedAt        DateTime?
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  organization Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  owner        OrganizationMembership? @relation("LeadOwner", fields: [ownerId], references: [id])
+  notes        Note[]
+  activities   Activity[]
+  tags         RecordTag[]
+  campaignLeads CampaignLead[]
+  tasks        Task[]
+
+  @@index([organizationId])
+  @@index([email])
+  @@index([status])
+  @@index([source])
+  @@index([ownerId])
+  @@index([isDeleted])
+}
+
+model Contact {
+  id             String   @id @default(uuid())
+  organizationId String
+  ownerId        String?
+  accountId      String?
+  firstName      String
+  lastName       String
+  email          String?
+  phone          String?
+  mobile         String?
+  jobTitle       String?
+  department     String?
+  birthday       DateTime?
+  addressLine1   String?
+  addressLine2   String?
+  city           String?
+  state          String?
+  country        String?
+  postalCode     String?
+  isDeleted      Boolean  @default(false)
+  deletedAt      DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  owner        OrganizationMembership? @relation("ContactOwner", fields: [ownerId], references: [id])
+  account      Account?                @relation(fields: [accountId], references: [id])
+  deals        Deal[]
+  notes        Note[]
+  activities   Activity[]
+  tasks        Task[]
+  tags         RecordTag[]
+  quotes       Quote[]
+
+  @@index([organizationId])
+  @@index([email])
+  @@index([accountId])
+  @@index([ownerId])
+  @@index([isDeleted])
+}
+
+model Account {
+  id             String   @id @default(uuid())
+  organizationId String
+  ownerId        String?
+  name           String
+  website        String?
+  industry       String?
+  companySize    String?
+  annualRevenue  Decimal? @db.Decimal(15, 2)
+  phone          String?
+  email          String?
+  billingAddress String?
+  shippingAddress String?
+  description    String?
+  isDeleted      Boolean  @default(false)
+  deletedAt      DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  owner        OrganizationMembership? @relation("AccountOwner", fields: [ownerId], references: [id])
+  contacts     Contact[]
+  deals        Deal[]
+  notes        Note[]
+  activities   Activity[]
+  tasks        Task[]
+  tags         RecordTag[]
+
+  @@index([organizationId])
+  @@index([ownerId])
+  @@index([isDeleted])
+}
+
+model Deal {
+  id               String    @id @default(uuid())
+  organizationId   String
+  ownerId          String?
+  contactId        String?
+  accountId        String?
+  name             String
+  amount           Decimal   @default(0) @db.Decimal(15, 2)
+  currency         String    @default("INR")
+  stage            DealStage @default(PROSPECTING)
+  probability      Int       @default(10)
+  expectedCloseDate DateTime?
+  source           LeadSource @default(OTHER)
+  description      String?
+  nextStep         String?
+  winReason        String?
+  lossReason       String?
+  closedAt         DateTime?
+  isDeleted        Boolean   @default(false)
+  deletedAt        DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  organization Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  owner        OrganizationMembership? @relation("DealOwner", fields: [ownerId], references: [id])
+  contact      Contact?                @relation(fields: [contactId], references: [id])
+  account      Account?                @relation(fields: [accountId], references: [id])
+  stageHistory DealStageHistory[]
+  notes        Note[]
+  activities   Activity[]
+  tasks        Task[]
+  quotes       Quote[]
+  tags         RecordTag[]
+
+  @@index([organizationId])
+  @@index([stage])
+  @@index([ownerId])
+  @@index([isDeleted])
+}
+
+model DealStageHistory {
+  id          String    @id @default(uuid())
+  dealId      String
+  fromStage   DealStage?
+  toStage     DealStage
+  changedById String?
+  note        String?
+  createdAt   DateTime  @default(now())
+
+  deal Deal @relation(fields: [dealId], references: [id], onDelete: Cascade)
+
+  @@index([dealId])
+}
+
+model Activity {
+  id             String       @id @default(uuid())
+  organizationId String
+  type           ActivityType
+  title          String
+  description    String?
+  leadId         String?
+  contactId      String?
+  accountId      String?
+  dealId         String?
+  assignedToId   String?
+  scheduledAt    DateTime
+  completedAt    DateTime?
+  duration       Int?         // in minutes
+  outcome        String?
+  isDeleted      Boolean      @default(false)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  lead         Lead?        @relation(fields: [leadId], references: [id])
+  contact      Contact?     @relation(fields: [contactId], references: [id])
+  account      Account?     @relation(fields: [accountId], references: [id])
+  deal         Deal?        @relation(fields: [dealId], references: [id])
+
+  @@index([organizationId])
+  @@index([scheduledAt])
+  @@index([type])
+}
+
+model Task {
+  id             String       @id @default(uuid())
+  organizationId String
+  assigneeId     String?
+  leadId         String?
+  contactId      String?
+  accountId      String?
+  dealId         String?
+  title          String
+  description    String?
+  priority       TaskPriority @default(MEDIUM)
+  status         TaskStatus   @default(NOT_STARTED)
+  dueDate        DateTime?
+  reminder       DateTime?
+  completedAt    DateTime?
+  isDeleted      Boolean      @default(false)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  organization Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  assignee     OrganizationMembership? @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  lead         Lead?                   @relation(fields: [leadId], references: [id])
+  contact      Contact?                @relation(fields: [contactId], references: [id])
+  account      Account?                @relation(fields: [accountId], references: [id])
+  deal         Deal?                   @relation(fields: [dealId], references: [id])
+
+  @@index([organizationId])
+  @@index([assigneeId])
+  @@index([status])
+  @@index([dueDate])
+}
+
+model Product {
+  id             String  @id @default(uuid())
+  organizationId String
+  name           String
+  sku            String?
+  description    String?
+  unitPrice      Decimal @default(0) @db.Decimal(15, 2)
+  currency       String  @default("INR")
+  category       String?
+  taxRate        Decimal @default(0) @db.Decimal(5, 2)
+  unit           String?
+  isActive       Boolean @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization   Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  quoteLineItems QuoteLineItem[]
+  orderLineItems SalesOrderLineItem[]
+
+  @@index([organizationId])
+}
+
+model Quote {
+  id             String      @id @default(uuid())
+  organizationId String
+  quoteNumber    String
+  contactId      String?
+  dealId         String?
+  quoteDate      DateTime    @default(now())
+  validUntil     DateTime?
+  expiryDate     DateTime?
+  status         QuoteStatus @default(DRAFT)
+  subtotal       Decimal     @default(0) @db.Decimal(15, 2)
+  discountAmount Decimal     @default(0) @db.Decimal(15, 2)
+  taxAmount      Decimal     @default(0) @db.Decimal(15, 2)
+  grandTotal     Decimal     @default(0) @db.Decimal(15, 2)
+  currency       String      @default("INR")
+  terms          String?
+  notes          String?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  contact      Contact?         @relation(fields: [contactId], references: [id])
+  deal         Deal?            @relation(fields: [dealId], references: [id])
+  lineItems    QuoteLineItem[]
+  salesOrders  SalesOrder[]
+
+  @@unique([organizationId, quoteNumber])
+  @@index([organizationId])
+}
+
+model QuoteLineItem {
+  id          String  @id @default(uuid())
+  quoteId     String
+  productId   String?
+  name        String
+  description String?
+  quantity    Decimal @default(1) @db.Decimal(10, 2)
+  unitPrice   Decimal @default(0) @db.Decimal(15, 2)
+  discount    Decimal @default(0) @db.Decimal(5, 2) // percentage
+  taxRate     Decimal @default(0) @db.Decimal(5, 2) // percentage
+  total       Decimal @default(0) @db.Decimal(15, 2)
+  sortOrder   Int     @default(0)
+
+  quote   Quote    @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  product Product? @relation(fields: [productId], references: [id])
+
+  @@index([quoteId])
+}
+
+model SalesOrder {
+  id             String        @id @default(uuid())
+  organizationId String
+  orderNumber    String
+  quoteId        String?
+  contactId      String?
+  orderDate      DateTime      @default(now())
+  deliveryStatus OrderStatus   @default(PENDING)
+  paymentStatus  PaymentStatus @default(PENDING)
+  subtotal       Decimal       @default(0) @db.Decimal(15, 2)
+  discountAmount Decimal       @default(0) @db.Decimal(15, 2)
+  taxAmount      Decimal       @default(0) @db.Decimal(15, 2)
+  grandTotal     Decimal       @default(0) @db.Decimal(15, 2)
+  currency       String        @default("INR")
+  notes          String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  quote        Quote?             @relation(fields: [quoteId], references: [id])
+  lineItems    SalesOrderLineItem[]
+
+  @@unique([organizationId, orderNumber])
+  @@index([organizationId])
+}
+
+model SalesOrderLineItem {
+  id           String  @id @default(uuid())
+  salesOrderId String
+  productId    String?
+  name         String
+  description  String?
+  quantity     Decimal @default(1) @db.Decimal(10, 2)
+  unitPrice    Decimal @default(0) @db.Decimal(15, 2)
+  discount     Decimal @default(0) @db.Decimal(5, 2)
+  taxRate      Decimal @default(0) @db.Decimal(5, 2)
+  total        Decimal @default(0) @db.Decimal(15, 2)
+  sortOrder    Int     @default(0)
+
+  salesOrder SalesOrder @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
+  product    Product?   @relation(fields: [productId], references: [id])
+
+  @@index([salesOrderId])
+}
+
+model Campaign {
+  id               String         @id @default(uuid())
+  organizationId   String
+  name             String
+  type             CampaignType   @default(OTHER)
+  status           CampaignStatus @default(PLANNING)
+  startDate        DateTime?
+  endDate          DateTime?
+  budget           Decimal?       @db.Decimal(15, 2)
+  expectedRevenue  Decimal?       @db.Decimal(15, 2)
+  actualRevenue    Decimal?       @db.Decimal(15, 2)
+  description      String?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  campaignLeads CampaignLead[]
+
+  @@index([organizationId])
+}
+
+model CampaignLead {
+  id         String   @id @default(uuid())
+  campaignId String
+  leadId     String
+  addedAt    DateTime @default(now())
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  lead     Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, leadId])
+}
+
+model Note {
+  id             String   @id @default(uuid())
+  organizationId String
+  content        String
+  leadId         String?
+  contactId      String?
+  accountId      String?
+  dealId         String?
+  authorId       String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  lead    Lead?    @relation(fields: [leadId], references: [id])
+  contact Contact? @relation(fields: [contactId], references: [id])
+  account Account? @relation(fields: [accountId], references: [id])
+  deal    Deal?    @relation(fields: [dealId], references: [id])
+
+  @@index([leadId])
+  @@index([contactId])
+  @@index([accountId])
+  @@index([dealId])
+}
+
+model Tag {
+  id             String @id @default(uuid())
+  organizationId String
+  name           String
+  color          String @default("#6366f1")
+
+  records RecordTag[]
+
+  @@unique([organizationId, name])
+}
+
+model RecordTag {
+  id        String  @id @default(uuid())
+  tagId     String
+  leadId    String?
+  contactId String?
+  accountId String?
+  dealId    String?
+
+  tag     Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  lead    Lead?    @relation(fields: [leadId], references: [id])
+  contact Contact? @relation(fields: [contactId], references: [id])
+  account Account? @relation(fields: [accountId], references: [id])
+  deal    Deal?    @relation(fields: [dealId], references: [id])
+
+  @@index([tagId])
+}
+
+model Notification {
+  id             String           @id @default(uuid())
+  organizationId String
+  userId         String
+  type           NotificationType
+  title          String
+  message        String
+  recordId       String?
+  recordType     String?
+  isRead         Boolean          @default(false)
+  readAt         DateTime?
+  createdAt      DateTime         @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([organizationId])
+  @@index([isRead])
+}
+
+model AuditLog {
+  id             String   @id @default(uuid())
+  organizationId String
+  userId         String?
+  action         String
+  resource       String
+  resourceId     String?
+  oldValues      Json?
+  newValues      Json?
+  ipAddress      String?
+  userAgent      String?
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User?        @relation(fields: [userId], references: [id])
+
+  @@index([organizationId])
+  @@index([resource, resourceId])
+}
+
+model ContactFormSubmission {
+  id             String   @id @default(uuid())
+  organizationId String?
+  name           String
+  email          String
+  phone          String?
+  company        String?
+  subject        String?
+  message        String
+  isRead         Boolean  @default(false)
+  createdAt      DateTime @default(now())
+
+  organization Organization? @relation(fields: [organizationId], references: [id])
+
+  @@index([isRead])
+}
