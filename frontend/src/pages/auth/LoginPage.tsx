@@ -31,7 +31,17 @@ export default function LoginPage() {
       success('Welcome back!', 'Logged in successfully');
       navigate('/dashboard');
     } catch (err: any) {
-      error('Login failed', err?.response?.data?.message || 'Invalid credentials');
+      let msg = err?.response?.data?.message;
+      if (!msg) {
+        if (!err?.response) {
+          msg = 'Network error: Cannot reach server.';
+        } else if (err?.response?.status >= 500) {
+          msg = 'Server/Database error: Database is not connected in Vercel settings.';
+        } else {
+          msg = 'Invalid credentials. Please check your email and password.';
+        }
+      }
+      error('Login failed', msg);
     } finally {
       setLoading(false);
     }
