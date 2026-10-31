@@ -1,6 +1,7 @@
 import axios from 'axios';
 
-const apiBase = import.meta.env.VITE_API_URL
+// Use relative /api/v1 by default so Vercel multi-service routing handles it seamlessly
+const apiBase = (import.meta.env.VITE_API_URL && !import.meta.env.VITE_API_URL.includes('onrender.com'))
   ? `${import.meta.env.VITE_API_URL}/api/v1`
   : '/api/v1';
 
